@@ -268,8 +268,11 @@ whenever sending or receiving stops working.
 3. Run `${CLAUDE_PLUGIN_ROOT}/scripts/upgrade-signal-cli.sh`, with
    `--version <x.y.z>` for a particular release. It:
    - downloads the native build into its own folder under `~/.local/opt`
-   - checks its signature when gpg has the maintainer's key, and otherwise
-     prints the command to import the key
+   - checks that the signal-cli maintainer's key signed it, using only the key
+     in the plugin's `keys/signal-cli-maintainer.asc` (fingerprint
+     `FA10826A74907F9EC6BBB7FC2BA2CD21B5B09570`), and stops if not. If it stops
+     because the maintainer has changed keys, tell the owner; don't use
+     `--skip-signature-check` unless the owner asks for it.
    - stops both services and backs up `~/.local/share/signal-cli`, as the
      signal-cli project advises, because a new version may change the account
      data so that an older version refuses it

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Upgrade the signal-cli native build that the signal-cli-daemon service runs.
 #
-#   upgrade-signal-cli.sh [--version <x.y.z>] [--dry-run]
+#   upgrade-signal-cli.sh [--version <x.y.z>] [--dry-run] [--skip-signature-check]
+#   upgrade-signal-cli.sh --check-signature <archive>   (checks <archive>.asc only)
 #
 # The signal-cli project says releases older than three months may stop
 # working with Signal's servers, and advises backing up the account data before
@@ -10,8 +11,10 @@
 #   1. finds the signal-cli the daemon service runs, which must be a link (as
 #      the setup steps install it), and its version
 #   2. downloads the new release (default: the latest) into its own folder
-#      under ~/.local/opt, checks its signature when gpg has the maintainer's
-#      key, and checks that it runs
+#      under ~/.local/opt, checks that the maintainer's key signed it, and
+#      checks that it runs. The key is in this plugin's keys/ folder, and only
+#      that key is accepted. Without a good signature from it, the script
+#      stops, unless --skip-signature-check is given.
 #   3. stops both services, copies ~/.local/share/signal-cli to a backup folder
 #   4. moves the link to the new version, starts both services, and checks the
 #      daemon answers
@@ -22,15 +25,23 @@ set -o errexit -o nounset -o pipefail
 
 version=""
 dry_run=0
+skip_signature=0
+check_only=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) version="${2#v}"; shift 2 ;;
     --dry-run) dry_run=1; shift ;;
+    --skip-signature-check) skip_signature=1; shift ;;
+    --check-signature) check_only="$2"; shift 2 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 
-maintainer_key="2BA2CD21B5B09570"
+# The signal-cli maintainer's signing key, AsamK <asamk@gmx.de>. The same key
+# signs the release tags on GitHub. Exported from keys.openpgp.org on
+# 23 November 2026.
+maintainer_fingerprint="FA10826A74907F9EC6BBB7FC2BA2CD21B5B09570"
+maintainer_key_file="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/keys/signal-cli-maintainer.asc"
 unit="$HOME/.config/systemd/user/signal-cli-daemon.service"
 data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/signal-cli"
 socket="${XDG_RUNTIME_DIR:-/run/user/$(id --user)}/signal-cli/socket"
@@ -39,9 +50,38 @@ check_script="$HOME/.local/lib/signal-session/signal-session.py"
 say() { echo "upgrade-signal-cli: $*"; }
 die() { echo "upgrade-signal-cli: $*" >&2; exit 1; }
 
+# check_signature <archive> <signature file>: succeeds only when the
+# maintainer's key made a good signature of the archive.
+check_signature() {
+  local home signer
+  # A keyring holding only the maintainer's key, so no other key the user has
+  # can make the check pass.
+  home="$(mktemp --directory)"
+  gpg --homedir "$home" --quiet --import "$maintainer_key_file" 2>/dev/null
+  # VALIDSIG's last field is the fingerprint of the primary key that signed.
+  signer="$(gpg --homedir "$home" --status-fd 1 --verify "$2" "$1" 2>/dev/null \
+    | awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" {print $NF}')" || true
+  rm -rf "$home"
+  if [ "$signer" != "$maintainer_fingerprint" ]; then
+    echo "upgrade-signal-cli: $(basename "$1") has no good signature from the signal-cli maintainer's key $maintainer_fingerprint: either the file was changed, or another key signed it. If the maintainer has changed keys, update keys/signal-cli-maintainer.asc in the plugin" >&2
+    return 1
+  fi
+  say "signature checked: $(basename "$1") is signed by the signal-cli maintainer's key $maintainer_fingerprint"
+}
+
+if [ -n "$check_only" ]; then
+  [ -f "$check_only" ] && [ -f "$check_only.asc" ] || die "--check-signature needs the archive and its .asc file next to it"
+  check_signature "$check_only" "$check_only.asc"
+  exit
+fi
+
 [ "$(uname --machine)" = "x86_64" ] || die "the native build is for x86_64 Linux only; on $(uname --machine), install the Java build from https://github.com/AsamK/signal-cli/releases by hand"
 [ -f "$unit" ] || die "no $unit: run setup-daemon.sh first"
 command -v curl >/dev/null || die "curl is required"
+if [ "$skip_signature" = 0 ]; then
+  command -v gpg >/dev/null || die "gpg is required to check the download's signature (or pass --skip-signature-check)"
+  [ -f "$maintainer_key_file" ] || die "the maintainer's key is missing from $maintainer_key_file"
+fi
 
 # The program the service runs: the first word after ExecStart=, with %h expanded.
 link="$(sed --quiet 's/^ExecStart=\([^ ]*\).*/\1/p' "$unit" | head --lines=1)"
@@ -83,13 +123,12 @@ base="https://github.com/AsamK/signal-cli/releases/download/v$version"
 say "downloading $archive"
 curl --silent --show-error --fail --location --output "$work/$archive" "$base/$archive"
 
-if command -v gpg >/dev/null && gpg --list-keys "$maintainer_key" >/dev/null 2>&1; then
-  curl --silent --show-error --fail --location --output "$work/$archive.asc" "$base/$archive.asc"
-  gpg --verify "$work/$archive.asc" "$work/$archive" 2>/dev/null || die "the signature of $archive does not match; not installing it"
-  say "signature checked with key $maintainer_key"
+if [ "$skip_signature" = 1 ]; then
+  say "signature not checked: --skip-signature-check was given"
 else
-  say "signature not checked: gpg does not have the maintainer's key. To check future upgrades, run:"
-  say "  gpg --keyserver keys.openpgp.org --recv-keys $maintainer_key"
+  curl --silent --show-error --fail --location --output "$work/$archive.asc" "$base/$archive.asc" \
+    || die "could not download $archive.asc, so the signature can't be checked; not installing it"
+  check_signature "$work/$archive" "$work/$archive.asc" || die "not installing $archive"
 fi
 
 mkdir --parents "$work/unpack"

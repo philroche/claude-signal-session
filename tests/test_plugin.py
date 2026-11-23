@@ -264,5 +264,44 @@ class PluginTest(unittest.TestCase):
         self.assertTrue(self.daemon.groups[group]["isMember"])
 
 
+@unittest.skipUnless(shutil.which("gpg"), "gpg is not installed")
+class SignatureCheckTest(unittest.TestCase):
+    """upgrade-signal-cli.sh must accept only the signal-cli maintainer's key.
+    A good signature from the real key needs a real release, so that case is
+    checked by hand; these check that everything else is refused."""
+
+    UPGRADE = os.path.join(SCRIPTS, "upgrade-signal-cli.sh")
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.archive = os.path.join(self.tmp, "signal-cli-0.0.0-Linux-native.tar.gz")
+        with open(self.archive, "wb") as f:
+            f.write(b"not really signal-cli")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def check(self):
+        return subprocess.run([self.UPGRADE, "--check-signature", self.archive],
+                              capture_output=True, text=True, timeout=60)
+
+    def test_refuses_a_signature_from_another_key(self):
+        home = os.path.join(self.tmp, "gnupg")
+        os.mkdir(home, 0o700)
+        gpg = ["gpg", "--homedir", home, "--batch", "--quiet", "--pinentry-mode", "loopback", "--passphrase", ""]
+        subprocess.run(gpg + ["--quick-gen-key", "Someone Else <else@example.invalid>", "ed25519", "sign", "1d"],
+                       check=True, capture_output=True, timeout=60)
+        subprocess.run(gpg + ["--armor", "--detach-sign", "--output", self.archive + ".asc", self.archive],
+                       check=True, capture_output=True, timeout=60)
+        out = self.check()
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("no good signature from the signal-cli maintainer's key", out.stderr)
+
+    def test_refuses_without_a_signature_file(self):
+        out = self.check()
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("needs the archive and its .asc file", out.stderr)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
