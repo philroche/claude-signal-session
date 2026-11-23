@@ -102,8 +102,11 @@ channels work while they are a research preview.
 
 - The plugin: `claude plugin update signal-session@signal-session`, then run
   `setup-daemon.sh` again, so the services use the new scripts.
-- signal-cli: the skill's setup section has the steps. Signal changes its
-  servers from time to time, and an old signal-cli can stop working.
+- signal-cli: run `/signal-session:signal-session upgrade` at least every three
+  months. The signal-cli project says releases older than three months may not
+  work with Signal's servers. The upgrade backs up the bot's account data
+  first, as the project advises, and goes back to the old version if the new
+  one doesn't start.
 
 ## Tests
 

@@ -1,7 +1,7 @@
 ---
 name: signal-session
-description: Let the owner keep working with the current Claude Code session from their phone over Signal while they are away from the terminal. Gives the session its own Signal group (the owner and a bot number), delivers the owner's messages, photos, videos and voice notes from that group into this session, acts on each one as if typed at the terminal, and replies in the group, with screenshots or files when useful. Use when the owner says "/signal-session", "listen on Signal", "I'm heading out, keep going over Signal", or asks to stop listening. Also covers the one-time signal-cli bot number registration and service setup.
-argument-hint: "start [group name] | stop | setup"
+description: Let the owner keep working with the current Claude Code session from their phone over Signal while they are away from the terminal. Gives the session its own Signal group (the owner and a bot number), delivers the owner's messages, photos, videos and voice notes from that group into this session, acts on each one as if typed at the terminal, and replies in the group, with screenshots or files when useful. Use when the owner says "/signal-session", "listen on Signal", "I'm heading out, keep going over Signal", or asks to stop listening. Also covers the one-time signal-cli bot number registration and service setup, and upgrading signal-cli.
+argument-hint: "start [group name] | stop | setup | upgrade"
 allowed-tools:
 - Bash
 - TaskStop
@@ -250,6 +250,46 @@ This sends the message, leaves the group and removes every record of it. The
 bot created the group and is its only admin, and signal-cli won't let the last
 admin leave, so `close` makes the owner the admin as the bot leaves.
 
+## `upgrade`
+
+Upgrades signal-cli to its latest release. The signal-cli project says:
+"signal-cli needs to be kept up-to-date to keep up with Signal-Server changes.
+The official Signal clients expire after three months and then the
+Signal-Server can make incompatible changes. So signal-cli releases older than
+three months may not work correctly." Upgrade at least every three months, and
+whenever sending or receiving stops working.
+
+1. Run `${CLAUDE_PLUGIN_ROOT}/scripts/upgrade-signal-cli.sh --dry-run`. It
+   prints the installed version, the latest one and what the upgrade would do.
+   If they match, tell the owner it is up to date and stop.
+2. If this session is listening on Signal, tell the owner in the group that
+   Signal will be down for about a minute. Messages sent meanwhile wait on
+   Signal's servers and arrive afterwards.
+3. Run `${CLAUDE_PLUGIN_ROOT}/scripts/upgrade-signal-cli.sh`, with
+   `--version <x.y.z>` for a particular release. It:
+   - downloads the native build into its own folder under `~/.local/opt`
+   - checks its signature when gpg has the maintainer's key, and otherwise
+     prints the command to import the key
+   - stops both services and backs up `~/.local/share/signal-cli`, as the
+     signal-cli project advises, because a new version may change the account
+     data so that an older version refuses it
+   - moves the link to the new version, starts both services and checks the
+     daemon answers
+   - goes back to the old version and the backed up data if the check fails
+4. Report the result: the old and new versions, and the two things kept for
+   going back, which the script prints: the old program's folder and the
+   account data backup. The owner can delete both once the new version has
+   worked for a few days.
+5. If this session is listening, start the listener again: the restart ended
+   it with a status event, or it is waiting on a daemon that is back.
+
+The script needs the daemon service to run signal-cli through a link, as step
+0 of `setup` installs it. If signal-cli came from a package manager, upgrade it
+with that package manager instead, then restart `signal-cli-daemon`. The native
+build is for x86_64 Linux. On other processors, install the Java build from
+https://github.com/AsamK/signal-cli/releases by hand; from version 0.14.0 it
+needs Java 25.
+
 ## `setup` (one time per machine)
 
 Requirements: Linux with systemd user services, Python 3, and a second phone
@@ -273,7 +313,12 @@ where you can, and give the owner the ones that need their phone or a browser.
    signal-cli --version
    ```
    On another processor than x86_64, use the Java build from the same page,
-   which needs the Java version its release notes name.
+   which needs Java 25 from version 0.14.0. The signal-cli project calls the
+   native build experimental; if it misbehaves, the Java build is the
+   alternative. Other people package signal-cli too, listed on
+   https://github.com/AsamK/signal-cli/wiki/Binary-distributions (for example
+   a Debian and Ubuntu repository, Flathub and the Arch AUR). Those can lag
+   behind the releases page, and `upgrade` can't switch their versions.
 1. Open https://signalcaptchas.org/registration/generate.html, solve the
    captcha, then right-click "Open Signal" and copy the link. It starts with
    `signalcaptcha://`.
@@ -324,25 +369,6 @@ anything needing sudo).
    language, add `SIGNAL_SESSION_WHISPER_PROMPT='<words>'` or
    `SIGNAL_SESSION_WHISPER_LANGUAGE=<code>` after `env` in
    `transcribe_command` in the config.
-
-### Upgrading signal-cli
-
-Signal changes its servers from time to time, and an old signal-cli can stop
-working. When it does, or every few months:
-
-1. Download and unpack the new version as in step 0, into its own folder,
-   but do not change the link yet.
-2. `systemctl --user stop signal-session-spool signal-cli-daemon`
-3. `ln --symbolic --force ~/.local/opt/signal-cli-$VERSION-native/signal-cli ~/.local/bin/signal-cli`
-4. `systemctl --user start signal-cli-daemon signal-session-spool`, then `check`.
-   It prints the running version.
-5. Keep the old folder until the new version has worked for a few days. To go
-   back, point the link at the old folder and restart both services.
-
-A new version may update the account data in `~/.local/share/signal-cli`, and
-an older version may then refuse it. Copy that folder before upgrading
-(`rsync --archive ~/.local/share/signal-cli/ ~/.local/share/signal-cli.backup/`)
-so going back stays possible.
 
 ### Moving the bot to another machine
 
