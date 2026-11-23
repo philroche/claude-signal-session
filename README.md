@@ -46,7 +46,7 @@ dropped before Claude sees them.
 ## Install
 
 ```
-claude plugin marketplace add <this repository's URL or local path>
+claude plugin marketplace add philroche/claude-signal-session
 claude plugin install signal-session@signal-session
 ```
 
