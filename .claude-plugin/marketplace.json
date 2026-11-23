@@ -1,0 +1,12 @@
+{
+  "name": "signal-session",
+  "description": "The signal-session plugin for Claude Code",
+  "owner": { "name": "Phil Roche" },
+  "plugins": [
+    {
+      "name": "signal-session",
+      "source": "./plugins/signal-session",
+      "description": "Keep working with a Claude Code session from your phone over Signal"
+    }
+  ]
+}

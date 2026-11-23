@@ -1,0 +1,18 @@
+{
+  "name": "signal-session",
+  "displayName": "Signal session",
+  "version": "0.1.0",
+  "description": "Keep working with a Claude Code session from your phone over Signal: each session gets its own Signal group with a bot number you own.",
+  "author": { "name": "Phil Roche" },
+  "license": "MIT",
+  "keywords": ["signal", "phone", "remote", "channel", "signal-cli"],
+  "mcpServers": {
+    "signal": {
+      "command": "python3",
+      "args": ["-I", "${CLAUDE_PLUGIN_ROOT}/scripts/signal-channel.py"]
+    }
+  },
+  "channels": [
+    { "server": "signal", "displayName": "Signal" }
+  ]
+}
